@@ -1,5 +1,6 @@
 #include "ir_nec.h"
 #include "Function.h"
+#include "Imu.h"
 #include "Motor.h"
 #include "Serial.h"
 #include "Servo.h"
@@ -97,15 +98,14 @@ void IR_work(void)
         switch (frame[2])
         {
         case 0x45:
-            Servo_SetAngle(1, 87);
-            Car_Move(20, 0, 0);
-            HAL_Delay(4000);
-            Car_Move(0, 0, 0);
-            HAL_Delay(10000);
+            /* 定角度控制：转到 0°（上电时的车头方向）并继续定住。 */
+            (void)Imu_TurnTo(0.0f);
             break;
 
         case 0x46:
-            Serial_SendString("START");
+            /* 转弯：在当前航向上再转 90°，正数 = 逆时针左转。
+             * 可以连按，每按一次累加 90°，转完自动保持在新角度。 */
+            (void)Imu_TurnBy(90.0f);
             break;
 
         case 0x47:
@@ -121,31 +121,40 @@ void IR_work(void)
             break;
 
         case 0x08:
+            Imu_HoldPause(800U);
             Car_Move(0.0f, 30.0f, 0.0f);
             break;
 
         case 0x5A:
+            Imu_HoldPause(800U);
             Car_Move(0.0f, -30.0f, 0.0f);
             break;
 
         case 0x18:
+            Imu_HoldPause(800U);
             Car_Move(30.0f, 0.0f, 0.0f);
             break;
 
         case 0x52:
+            Imu_HoldPause(800U);
             Car_Move(-30.0f, 0.0f, 0.0f);
             break;
 
         case 0x16:
+            Imu_HoldPause(800U);
             Car_Move(0.0f, 0.0f, 90.0f);
             break;
 
         case 0x0d:
+            Imu_HoldPause(800U);
             Car_Move(0.0f, 0.0f, -90.0f);
             break;
 
         case 0x1c:
+            /* 停车，并把"当前朝向"重新定为要定住的角度。
+             * 车被推歪之后按一下，它就会以现在这个方向为新的 0 基准。 */
             Car_Move(0.0f, 0.0f, 0.0f);
+            Imu_HoldStart(Imu_GetYaw());
             break;
 
         case 0x40:

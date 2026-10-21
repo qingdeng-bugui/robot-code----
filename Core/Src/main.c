@@ -19,22 +19,23 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "adc.h"
+#include "gpio.h"
 #include "tim.h"
 #include "usart.h"
-#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "Encoder.h"
 #include "Function.h"
+#include "Imu.h"
 #include "Motor.h"
 #include "OLED.h"
 #include "PID.h"
+#include "Photoresistor.h"
 #include "Serial.h"
 #include "Servo.h"
 #include "ir_nec.h"
 #include "track.h"
-#include "Photoresistor.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,119 +72,138 @@ void SystemClock_Config(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
-  /* USER CODE BEGIN 1 */
+    /* USER CODE BEGIN 1 */
 
-  /* USER CODE END 1 */
+    /* USER CODE END 1 */
 
-  /* MCU Configuration--------------------------------------------------------*/
+    /* MCU Configuration--------------------------------------------------------*/
 
-  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-  HAL_Init();
+    /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+    HAL_Init();
 
-  /* USER CODE BEGIN Init */
+    /* USER CODE BEGIN Init */
 
-  /* USER CODE END Init */
+    /* USER CODE END Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
+    /* Configure the system clock */
+    SystemClock_Config();
 
-  /* USER CODE BEGIN SysInit */
+    /* USER CODE BEGIN SysInit */
 
-  /* USER CODE END SysInit */
+    /* USER CODE END SysInit */
 
-  /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_TIM2_Init();
-  MX_TIM4_Init();
-  MX_TIM5_Init();
-  MX_TIM8_Init();
-  MX_TIM20_Init();
-  MX_USART2_UART_Init();
-  MX_USART1_UART_Init();
-  MX_TIM3_Init();
-  MX_TIM1_Init();
-  MX_TIM15_Init();
-  MX_ADC1_Init();
-  MX_USART3_UART_Init();
-  /* USER CODE BEGIN 2 */
-  OLED_Init();
-  Motor_Init();
-  Encoder_Init();
-  Servo_Init();
-  IR_NEC_Init();
-  HAL_TIM_Base_Start_IT(&htim1); // 启动PID定时器(100Hz)，中断里调用PID_Cala
-  Servo_SetAngle(1,87);
-  Servo_SetAngle(2,80);
-  /*
-   * 环境光只在上电初始化阶段采样一次，并锁存在
-   * Photoresistor.c 的 EnvnironmentLight 全局变量中。
-   */
-  Photoresistor_Init();
+    /* Initialize all configured peripherals */
+    MX_GPIO_Init();
+    MX_TIM2_Init();
+    MX_TIM4_Init();
+    MX_TIM5_Init();
+    MX_TIM8_Init();
+    MX_TIM20_Init();
+    MX_USART2_UART_Init();
+    MX_USART1_UART_Init();
+    MX_TIM3_Init();
+    MX_TIM1_Init();
+    MX_TIM15_Init();
+    MX_ADC1_Init();
+    MX_USART3_UART_Init();
+    /* USER CODE BEGIN 2 */
+    OLED_Init();
+    Motor_Init();
+    Encoder_Init();
+    Servo_Init();
+    IR_NEC_Init();
+    HAL_TIM_Base_Start_IT(&htim1); // 启动PID定时器(100Hz)，中断里调用PID_Cala
+    Servo_SetAngle(1, 87);
+    Servo_SetAngle(2, 80);
+    /*
+     * 环境光只在上电初始化阶段采样一次，并锁存在
+     * Photoresistor.c 的 EnvnironmentLight 全局变量中。
+     */
+    Photoresistor_Init();
 
-  /* USER CODE END 2 */
+    /*
+     * 10 轴 IMU：USART3（PC10=TX / PC11=RX），115200 8N1。
+     * Imu_Init 内部会：
+     *   1. 等模块上电启动（约 1.2s）
+     *   2. 等到第一帧有效角度
+     *   3. 把"当前车头方向"置为 0°
+     *   4. 开启航向保持（之后主循环里一直维持 0°）
+     * Imu_SelfTest 在 IMU_TEST_MODE=0 时立即返回。
+     */
+    Imu_Init();
+    Imu_SelfTest();
 
-  /* Infinite loop */
-  /* USER CODE BEGIN WHILE */
+    /* USER CODE END 2 */
+
+    /* Infinite loop */
+    /* USER CODE BEGIN WHILE */
     while (1)
     {
+        Imu_Update();
+        Imu_HoldStep();     /* 航向保持：上电方向 0°，之后一直定住 */
+        Imu_DebugToOled();  /* IMU_DEBUG_OLED=0 时编译成空函数，不占时间 */
+#if ((IMU_TEST_MODE != 0) || (IMU_LOOP_IMU_ONLY != 0))
+        /* 排查/测试模式：不跑比赛流程，避免光敏误触发把主循环卡住 */
+        HAL_Delay(5);
+#else
         Photoresistor();
         IR_work();
-    /* USER CODE END WHILE */
+#endif
+        /* USER CODE END WHILE */
 
-    /* USER CODE BEGIN 3 */
+        /* USER CODE BEGIN 3 */
     }
-  /* USER CODE END 3 */
+    /* USER CODE END 3 */
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
-  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-  /** Configure the main internal regulator output voltage
-  */
-  HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
+    /** Configure the main internal regulator output voltage
+     */
+    HAL_PWREx_ControlVoltageScaling(PWR_REGULATOR_VOLTAGE_SCALE1_BOOST);
 
-  /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV2;
-  RCC_OscInitStruct.PLL.PLLN = 85;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
-  RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
-  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    /** Initializes the RCC Oscillators according to the specified parameters
+     * in the RCC_OscInitTypeDef structure.
+     */
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+    RCC_OscInitStruct.PLL.PLLM = RCC_PLLM_DIV2;
+    RCC_OscInitStruct.PLL.PLLN = 85;
+    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+    RCC_OscInitStruct.PLL.PLLQ = RCC_PLLQ_DIV2;
+    RCC_OscInitStruct.PLL.PLLR = RCC_PLLR_DIV2;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+        Error_Handler();
+    }
 
-  /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+    /** Initializes the CPU, AHB and APB buses clocks
+     */
+    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_4) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 /* USER CODE BEGIN 4 */
@@ -200,6 +220,12 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         Visual_RxCpltCallback();
         // 处理接收到的数据
     }
+
+    /* USART3 接 10 轴 IMU，按 Instance 分发，避免依赖句柄名 */
+    if (huart->Instance == USART3)
+    {
+        Imu_RxCpltCallback();
+    }
 }
 
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
@@ -214,37 +240,42 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
         Visual_RxErrorCallback();
         // 处理错误
     }
+
+    if (huart->Instance == USART3)
+    {
+        Imu_RxErrorCallback();
+    }
 }
 
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
-  /* USER CODE BEGIN Error_Handler_Debug */
+    /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state */
     __disable_irq();
     while (1)
     {
     }
-  /* USER CODE END Error_Handler_Debug */
+    /* USER CODE END Error_Handler_Debug */
 }
 #ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
-  /* USER CODE BEGIN 6 */
+    /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line number,
        ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-  /* USER CODE END 6 */
+    /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

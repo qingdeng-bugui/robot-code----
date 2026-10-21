@@ -81,6 +81,8 @@ virtualFolder:
         - path: Hardware/ir_nec.h
         - path: Hardware/Photoresistor.c
         - path: Hardware/Photoresistor.h
+        - path: Hardware/Imu.c
+        - path: Hardware/Imu.h
       folders: []
     - name: ::CMSIS
       files: []
