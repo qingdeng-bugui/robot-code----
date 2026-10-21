@@ -15,9 +15,11 @@
 
 typedef struct
 {
-    float fwd_mm;      /* 相对上一个点位：向前 */
-    float left_mm;     /* 相对上一个点位：向左（负值 = 向右） */
-    float gimbal_deg;  /* 到点后云台（舵机2）的角度 */
+    float   heading_deg; /* 走这一段之前先把车头转到这个方向（0 = 上电方向） */
+    float   fwd_mm;      /* 相对上一个点位：向前 */
+    float   left_mm;     /* 相对上一个点位：向左（负值 = 向右） */
+    float   gimbal_deg;  /* 到点后云台（舵机2）的角度 */
+    uint8_t stab;        /* 1 = 到点后判红/判可戳；0 = 只移动 */
 } Shoot_Leg_t;
 
 /* ---------------- 第一段位移 ---------------- */
@@ -27,9 +29,20 @@ typedef struct
 
 /* ---------------- 第二段位移：7 号位 -> 6 号位 ---------------- */
 
-#define SHOOT_FWD2_MM       230.0f   /* 向前 23cm（21 + 2） */
-#define SHOOT_RIGHT2_MM      40.0f   /* 向右 4cm */
+#define SHOOT_FWD2_MM       210.0f   /* 向前 21cm（23 − 2） */
+#define SHOOT_RIGHT2_MM      30.0f   /* 向右 3cm（4 − 1） */
 #define SHOOT_GIMBAL2_DEG   170.0f   /* 6 号位的云台角度 */
+
+/* ---------------- 第三、四段：探路，不判可戳 ---------------- */
+
+#define SHOOT_RIGHT3_MM     250.0f   /* 6 号位 -> 向右 25cm */
+#define SHOOT_FWD3_MM       300.0f   /* 再向前 30cm */
+
+/* ---------------- 第五段：真正到 3 号位 ---------------- */
+
+#define SHOOT_HEADING3_DEG   40.0f   /* 到 3 号位前先左转 40°（0=上电方向，正数向左） */
+#define SHOOT_FWD4_MM        90.0f   /* 再前进 9cm 就是 3 号位 */
+#define SHOOT_GIMBAL3_DEG   160.0f   /* 3 号位的云台角度 */
 
 /* ---------------- 行走 ---------------- */
 

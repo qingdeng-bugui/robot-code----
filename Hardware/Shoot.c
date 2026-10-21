@@ -9,11 +9,15 @@
 #include <math.h>
 
 /* 点位表：每一段都是相对上一个点位的位移，戳完会回到该点位，所以段与段之间可以直接累加。
- * 第三列是到点后云台的角度（每个点位可以不一样）。后续点位量好后往下加即可。 */
+ * 字段：方向 / 前移 / 左移 / 云台角 / 是否判可戳。后续点位量好后往下加即可。 */
 static const Shoot_Leg_t SHOOT_LEGS[] =
 {
-    { SHOOT_FWD_MM,  SHOOT_LEFT_MM,           SHOOT_GIMBAL_DEG  },  /* 循迹终点 -> 7 号位 */
-    { SHOOT_FWD2_MM, -(SHOOT_RIGHT2_MM),      SHOOT_GIMBAL2_DEG }   /* 7 号位 -> 6 号位：前23cm、右4cm */
+    /* 方向(deg)  前移(mm)        左移(mm)              云台角             判可戳 */
+    { 0.0f,       SHOOT_FWD_MM,  SHOOT_LEFT_MM,        SHOOT_GIMBAL_DEG,  1U }, /* 循迹终点 -> 7 号位 */
+    { 0.0f,       SHOOT_FWD2_MM, -(SHOOT_RIGHT2_MM),   SHOOT_GIMBAL2_DEG, 1U }, /* -> 6 号位：前21cm、右3cm */
+    { 0.0f,       0.0f,          -(SHOOT_RIGHT3_MM),   SHOOT_GIMBAL2_DEG, 0U }, /* 探路：向右 25cm */
+    { 0.0f,       SHOOT_FWD3_MM, 0.0f,                 SHOOT_GIMBAL2_DEG, 0U }, /* 探路：向前 30cm */
+    { SHOOT_HEADING3_DEG, SHOOT_FWD4_MM, 0.0f,         SHOOT_GIMBAL3_DEG, 1U }  /* 左转 40° 再前进 9cm -> 3 号位 */
 };
 
 #define SHOOT_LEG_COUNT  (sizeof(SHOOT_LEGS) / sizeof(SHOOT_LEGS[0]))
@@ -40,8 +44,8 @@ static void Shoot_BodySpeed(float *vx, float *vy)
     *vy = (-lf + rf + lr - rr) * 0.25f;
 }
 
-/* 航向修正角速度，始终锁在 SHOOT_HEADING_DEG */
-static float Shoot_HoldOmega(void)
+/* 航向修正角速度，锁在 target_deg */
+static float Shoot_HoldOmega(float target_deg)
 {
     float err;
     float omega;
@@ -51,7 +55,7 @@ static float Shoot_HoldOmega(void)
         return 0.0f;
     }
 
-    err = Shoot_Wrap180(SHOOT_HEADING_DEG - Imu_GetYaw());
+    err = Shoot_Wrap180(target_deg - Imu_GetYaw());
     omega = SHOOT_HOLD_GAIN * err;
 
     if (omega > SHOOT_HOLD_OMEGA)
@@ -184,8 +188,8 @@ static void Shoot_Aim(float *servo, int dx, float gain, int deadband, float max_
 
 /* ---------------- 位移 ---------------- */
 
-/* 沿车体 (fwd, left) 方向走 len_mm，航向锁 0° */
-static void Shoot_MoveBy(float fwd_mm, float left_mm, float speed_cms)
+/* 沿车体 (fwd, left) 方向走，航向锁 heading_deg */
+static void Shoot_MoveBy(float fwd_mm, float left_mm, float speed_cms, float heading_deg)
 {
     uint32_t t0 = HAL_GetTick();
     uint32_t last = t0;
@@ -243,7 +247,7 @@ static void Shoot_MoveBy(float fwd_mm, float left_mm, float speed_cms)
             speed = SHOOT_MIN_SPEED;
         }
 
-        Car_Move(speed * dir_x, speed * dir_y, Shoot_HoldOmega());
+        Car_Move(speed * dir_x, speed * dir_y, Shoot_HoldOmega(heading_deg));
         HAL_Delay(5U);
     }
 
@@ -253,7 +257,7 @@ static void Shoot_MoveBy(float fwd_mm, float left_mm, float speed_cms)
 
 /* ---------------- 戳 ---------------- */
 
-static void Shoot_TryStab(float gimbal_deg)
+static void Shoot_TryStab(float gimbal_deg, float heading_deg)
 {
     int dx = 0;
     int can_hit = 0;
@@ -369,7 +373,8 @@ static void Shoot_TryStab(float gimbal_deg)
         Shoot_BodySpeed(&vx, &vy);
         moved += sqrtf((vx * vx) + (vy * vy)) * dt * 10.0f;
 
-        Car_Move(SHOOT_APPROACH_SPEED * bx, SHOOT_APPROACH_SPEED * by, Shoot_HoldOmega());
+        Car_Move(SHOOT_APPROACH_SPEED * bx, SHOOT_APPROACH_SPEED * by,
+                 Shoot_HoldOmega(heading_deg));
         HAL_Delay(5U);
     }
 
@@ -443,7 +448,7 @@ static void Shoot_TryStab(float gimbal_deg)
 
         Car_Move((elapsed < (float)SHOOT_PUSH_MS) ? (SHOOT_PUSH_SPEED * bx) : (SHOOT_JAB_SPEED * bx),
                  (elapsed < (float)SHOOT_PUSH_MS) ? (SHOOT_PUSH_SPEED * by) : (SHOOT_JAB_SPEED * by),
-                 Shoot_HoldOmega());
+                 Shoot_HoldOmega(heading_deg));
         HAL_Delay(5U);
     }
 
@@ -455,12 +460,12 @@ static void Shoot_TryStab(float gimbal_deg)
     /* ---- 8) 回位：沿同一方向反向走回去 ---- */
     if (moved > 3.0f)
     {
-        Shoot_MoveBy(-(moved * bx), -(moved * by), SHOOT_RETURN_SPEED);
+        Shoot_MoveBy(-(moved * bx), -(moved * by), SHOOT_RETURN_SPEED, heading_deg);
     }
 
     /* 云台与航向复位 */
     Servo_SetAngle(2, gimbal_deg);
-    (void)Imu_TurnTo(SHOOT_HEADING_DEG);
+    (void)Imu_TurnTo(heading_deg);
 }
 
 void Shoot_Run(void)
@@ -471,13 +476,29 @@ void Shoot_Run(void)
 
     for (i = 0U; i < (uint8_t)SHOOT_LEG_COUNT; i++)
     {
-        /* 每个点位动作前：云台转到该点位自己的角度、钢针收回 */
+        /* 这一段要求的车头方向，和当前不一致就先转过去 */
+        if (Imu_IsOnline() != 0U)
+        {
+            float d = Shoot_Wrap180(SHOOT_LEGS[i].heading_deg - Imu_GetYaw());
+
+            if ((d > 2.0f) || (d < -2.0f))
+            {
+                (void)Imu_TurnTo(SHOOT_LEGS[i].heading_deg);
+            }
+        }
+
+        /* 云台转到该点位自己的角度、钢针收回 */
         Servo_SetAngle(2, SHOOT_LEGS[i].gimbal_deg);
         Servo_SetAngle(1, SHOOT_NEEDLE_IN);
 
-        Shoot_MoveBy(SHOOT_LEGS[i].fwd_mm, SHOOT_LEGS[i].left_mm, SHOOT_SPEED);
+        Shoot_MoveBy(SHOOT_LEGS[i].fwd_mm, SHOOT_LEGS[i].left_mm, SHOOT_SPEED,
+                     SHOOT_LEGS[i].heading_deg);
 
-        Shoot_TryStab(SHOOT_LEGS[i].gimbal_deg);
+        /* 只有标记为"判可戳"的段，到点后才做判红/靠近/扎击 */
+        if (SHOOT_LEGS[i].stab != 0U)
+        {
+            Shoot_TryStab(SHOOT_LEGS[i].gimbal_deg, SHOOT_LEGS[i].heading_deg);
+        }
     }
 
     Shoot_Stop();
