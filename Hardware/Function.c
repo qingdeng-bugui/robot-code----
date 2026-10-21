@@ -1,6 +1,8 @@
-﻿#include "Function.h"
+#include "Function.h"
 #include "adc.h"
+#include "LineFast.h"
 #include "Motor.h"
+#include "Nav.h"
 #include "PID.h"
 #include "Serial.h"
 #include "Servo.h"
@@ -183,308 +185,6 @@ static volatile uint8_t visual_rx_overflow = 0U;
 static char visual_line_buffer[VISUAL_LINE_LENGTH];
 static uint8_t visual_line_length = 0U;
 static uint8_t visual_discard_line = 0U;
-
-/*
- * X[i] 为第 i 路循迹传感器的二值状态：
- * 1 表示模拟量超过阈值、检测到黑线；0 表示当前看到白底。
- */
-int X[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-
-static void values_handle(void)
-{
-    /*
-     * 循迹模块输出的是 ADC/比较后的模拟量，而后续算法只需要黑或白。
-     * 统一在这里做阈值化，避免主循环中的每个分支都重复比较 1300。
-     */
-    for (int i = 0; i < 8; i++)
-    {
-        X[i] = (track_values[i] > 1300) ? 1 : 0;
-    }
-}
-
-void Tack_line(void)
-{
-
-    /*
-     * 循迹主循环每 5 ms 执行一次：先采样并计算线路偏差，
-     * 再把左右轮目标速度写入电机控制模块。
-     * 该函数会持续运行，直到红外命令改变导致上层退出当前功能。
-     */
-
-    int left_speed = 0;         /* 本周期写入左侧两个电机的目标速度。 */
-    int right_speed = 0;        /* 本周期写入右侧两个电机的目标速度。 */
-    int last_turn = -1;         /* 最近一次明显偏差方向：-1 左，1 右，用于丢线搜索。 */
-    int turning_left = 0;       /* 是否正在执行固定差速的左转状态。 */
-    int turn_center_count = 0;  /* 新边线出现后用于补转的周期计数。 */
-    int turn_count = 0;         /* 已识别到的左转次数，用于判断第四弯。 */
-    int turn_ready = 1;         /* 角点释放锁：1 允许识别新弯，0 等待离开旧弯。 */
-    int turn_release_count = 0; /* 连续离开旧角点的采样次数。 */
-
-    int finish_armed = 0;            /* 已进入第四弯后的收尾阶段。 */
-    int finish_detected = 0;         /* 已连续确认终点全白，等待执行停车动作。 */
-    int finish_white_count = 0;      /* 终点保护时间结束后的连续全白采样次数。 */
-    int finish_guard_passed = 0;     /* 第四弯后的终点保护时间是否已经结束。 */
-    uint32_t fourth_corner_tick = 0; /* 进入第四弯时记录的系统滴答。 */
-
-    int sensor_mask = 0;  /* 将 8 路二值状态压成一个位图，便于判断特定组合。 */
-    int sensor_count = 0; /* 当前检测到黑线的传感器数量。 */
-    int line_error = 0;   /* 加权后的未归一化线路偏差。 */
-    int raw_error = 0;    /* 除以黑线传感器数量后的平均偏差。 */
-    int correction = 0;   /* 根据偏差换算出的左右轮差速修正量。 */
-    int base_speed = 0;   /* 当前行驶模式的基础速度。 */
-
-    const int straight_speed = 1300;        // 直线基础速度；数值越大越快，但过高会增加偏移和丢线风险。
-    const int corner_speed = 900;           // 多路压线或偏差较大时使用的速度；降低弯道速度可增加循迹余量。
-    const int finish_approach_speed = 1020; // 完成第四个弯后的收尾速度；低于直线速度以减少终点冲出距离。
-    const int turn_left_speed = -240;       // 原地左转时左侧电机反转，与右侧电机形成差速转向。
-    const int turn_right_speed = 560;       // 原地左转时右侧电机正转；与左轮速度共同决定转弯力度。
-    const int turn_settle_cycles = 25;      // 新边线回到中间后继续转向的周期数；循环延时为 5 ms，约 125 ms。
-    const int turn_release_cycles = 6;      // 连续确认离开当前角点的周期数；确认后才允许识别下一个角点。
-    const int search_left_speed = -160;     // 丢线且最近一次偏差向左时，左轮反转进行低速搜索。
-    const int search_right_speed = 430;     // 丢线搜索时另一侧电机的速度；与 search_left_speed 配合完成转向搜索。
-    const int max_correction = 340;         // 偏差修正量上限，避免过度修正导致抖动或反向摆动。
-    const int correction_gain = 50;         // 偏差修正系数；越大转向响应越快，但过大会抖动。
-    const int finish_white_cycles = 12;     // 连续全白采样次数；越大越能抑制误判，但确认停车会稍晚。
-    const uint32_t finish_guard_ms = 1900U; // 第四弯后暂缓终点判断的时间，避免转弯过程中的短暂全白被当作终点。
-
-    /* 开启循迹模块并执行起步、转向对准动作。 */
-    Track_Control(1);
-
-    Car_Move(60.0f, 0.0f, 0.0f);
-    HAL_Delay(480);
-    Car_Move(30.0f, 0.0f, -180.0f);
-    HAL_Delay(520);
-
-    /*
-     * 红外命令不是循迹键时退出循环。
-     * 返回主循环后，IR_work() 会继续处理新的遥控命令。
-     */
-    while (1)
-    {
-        values_handle();
-
-        sensor_mask = X[0] |
-                      (X[1] << 1) |
-                      (X[2] << 2) |
-                      (X[3] << 3) |
-                      (X[4] << 4) |
-                      (X[5] << 5) |
-                      (X[6] << 6) |
-                      (X[7] << 7);
-        /* sensor_mask 的第 i 位对应 X[i]；sensor_count 为压到黑线的传感器数量。 */
-        sensor_count = X[0] + X[1] + X[2] + X[3] +
-                       X[4] + X[5] + X[6] + X[7];
-
-        /* 已确认终点时优先执行收尾动作，避免后续循迹计算再次给电机加速。 */
-
-        if (finish_detected != 0)
-        {
-            /* 终点确认后持续将目标速度和 PWM 清零，避免电机残留输出。 */
-            Scene_StopCar();
-            HAL_Delay(30);
-            Car_Move(60.0f, 0.0f, 180.0f);
-            HAL_Delay(365);
-            Car_Move(20.0f, 0.0f, 180.0f);
-            HAL_Delay(304);
-            Scene_StopCar();
-
-            break;
-        }
-
-        if (finish_armed != 0 &&
-            (uint32_t)(HAL_GetTick() - fourth_corner_tick) >= finish_guard_ms)
-        {
-            /* 用无符号时间差处理系统滴答计数回绕。 */
-            finish_guard_passed = 1;
-        }
-
-        left_speed = straight_speed;
-        right_speed = straight_speed;
-
-        /*
-         * 进入左转时立即计次，而不是等转弯退出后才计次。
-         * 即使某个弯的出弯状态不完整，也不会漏掉这个直角。
-         */
-        if (turning_left == 0 &&
-            turn_ready != 0 &&
-            finish_armed == 0 &&
-            (sensor_mask & 0x07) == 0x07)
-        {
-            /* 左侧三路同时压线视为左直角入口；turn_ready 防止同一角点重复计次。 */
-            turning_left = 1;
-            turn_ready = 0;
-            turn_center_count = 0;
-            turn_release_count = 0;
-            turn_count++;
-
-            if (turn_count >= 4)
-            {
-                /* 第四次进入左转即开启收尾阶段，并开始终点保护计时。 */
-                finish_armed = 1;
-                finish_guard_passed = 0;
-                finish_white_count = 0;
-                fourth_corner_tick = HAL_GetTick();
-            }
-        }
-
-        if (turning_left != 0)
-        {
-            /* 转弯状态只使用固定差速，不叠加循迹修正。 */
-            left_speed = turn_left_speed;
-            right_speed = turn_right_speed;
-
-            /*
-             * 左侧传感器离开旧边线、中间传感器压到新边线后，
-             * 再保持一段时间，补足九十度。
-             */
-            if (turn_center_count == 0)
-            {
-                /* 尚未检测到新边线，保持固定差速继续寻找出弯位置。 */
-                if ((sensor_mask & 0x07) == 0 &&
-                    (sensor_mask & 0x18) != 0)
-                {
-                    turn_center_count = 1;
-                }
-            }
-            else
-            {
-                /* 已重新压到新边线，按固定周期补转，完成后退出转弯状态。 */
-                turn_center_count++;
-                if (turn_center_count >= turn_settle_cycles)
-                {
-                    turning_left = 0;
-                    turn_center_count = 0;
-                    turn_release_count = 0;
-                }
-            }
-        }
-        else
-        {
-            /* 未处于固定转弯状态时，执行角点释放和普通循迹控制。 */
-            /*
-             * 出弯后先确认车辆已经离开当前角点，才允许识别下一个角点。
-             * 这个锁定只负责防止状态抖动，不参与转弯计次。
-             */
-            if (turn_ready == 0 &&
-                (sensor_mask & 0x07) == 0 &&
-                (sensor_mask & 0x18) != 0)
-            {
-                turn_release_count++;
-                if (turn_release_count >= turn_release_cycles)
-                {
-                    /* 连续满足出弯条件后解锁下一次角点识别。 */
-                    turn_ready = 1;
-                    turn_release_count = 0;
-                }
-            }
-            else if ((sensor_mask & 0x07) != 0)
-            {
-                turn_release_count = 0;
-            }
-
-            base_speed = (finish_armed != 0) ? finish_approach_speed : straight_speed;
-
-            if (sensor_count == 0)
-            {
-                /* 全白表示丢线：收尾阶段直行，普通阶段按最近偏差方向搜索。 */
-                if (finish_armed != 0)
-                {
-                    /* 第四弯后的短暂全白继续直行，等待终点保护时间结束。 */
-                    left_speed = base_speed;
-                    right_speed = base_speed;
-                }
-                else if (last_turn <= 0)
-                {
-                    left_speed = search_left_speed;
-                    right_speed = search_right_speed;
-                }
-                else
-                {
-                    left_speed = search_right_speed;
-                    right_speed = search_left_speed;
-                }
-            }
-            else
-            {
-                /* 权重从左到右递增，黑线越靠右，计算出的偏差越大。 */
-                line_error = -7 * X[0] - 5 * X[1] - 3 * X[2] - X[3] +
-                             X[4] + 3 * X[5] + 5 * X[6] + 7 * X[7];
-                /* 按当前检测到的黑线传感器数量归一化，减少线宽变化的影响。 */
-                raw_error = line_error / sensor_count;
-
-                /* raw_error 的正负决定修正方向，绝对值决定修正强度。 */
-
-                /* 不滤波，直接用当前采样值修正，减少状态和延迟。 */
-                if (raw_error < -1)
-                {
-                    last_turn = -1;
-                }
-                else if (raw_error > 1)
-                {
-                    last_turn = 1;
-                }
-
-                if (finish_armed == 0 &&
-                    (sensor_count >= 3 ||
-                     raw_error <= -5 ||
-                     raw_error >= 5))
-                {
-                    /* 多路压线或偏差较大表示接近弯道，切换到弯道基础速度。 */
-                    base_speed = corner_speed;
-                }
-
-                /* 偏差为负时降低左轮、提高右轮；偏差为正时反向修正。 */
-                correction = raw_error * correction_gain;
-                if (correction > max_correction)
-                {
-                    correction = max_correction;
-                }
-                else if (correction < -max_correction)
-                {
-                    correction = -max_correction;
-                }
-
-                left_speed = base_speed + correction;
-                right_speed = base_speed - correction;
-                /* 左右轮采用相反修正量，使底盘朝线路中心回正。 */
-            }
-        }
-
-        /*
-         * 第四个弯之后，八路连续全白才确认终点。
-         * 一旦开始确认，左右目标速度立即置零，不再向前探。
-         */
-        if (finish_armed != 0 &&
-            finish_guard_passed != 0 &&
-            sensor_count == 0)
-        {
-            /* 保护时间结束后才累计连续全白；任一传感器重新看到黑线都会清零计数。 */
-            finish_white_count++;
-            left_speed = 0;
-            right_speed = 0;
-
-            if (finish_white_count >= finish_white_cycles)
-            {
-                finish_detected = 1;
-            }
-        }
-        else if (finish_armed != 0 && sensor_count != 0)
-        {
-            finish_white_count = 0;
-        }
-
-        Set_Target_Speed(1, left_speed);
-        Set_Target_Speed(3, left_speed);
-        Set_Target_Speed(2, right_speed);
-        Set_Target_Speed(4, right_speed);
-        /* 每 5 ms 更新一次循迹决策和电机目标速度。 */
-        HAL_Delay(5);
-    }
-
-    /* 退出循迹后立即停车，并释放循迹串口。 */
-    Scene_StopCar();
-    Track_Control(0);
-}
 
 void Keep_In(void) // 防止出界
 {
@@ -777,7 +477,7 @@ static uint8_t Visual_RxPop(uint8_t *byte)
  * 取出当前已经收到的所有完整行，只保留最后一行。
  * 视觉帧可能比控制周期更快，不能把旧dx逐条排队执行。
  */
-static uint8_t Visual_ReadLatestLine(char *line)
+uint8_t Visual_ReadLatestLine(char *line)
 {
     /*
      * 将缓存中的字节按换行符组帧。一次调用可能读到多行，
@@ -868,7 +568,7 @@ static uint8_t Visual_ParseSignedInt(const char *line, uint8_t *index, int *valu
     return 1U;
 }
 
-static uint8_t Visual_ParseLine(const char *line, int *dx, int *can_hit,
+uint8_t Visual_ParseLine(const char *line, int *dx, int *can_hit,
                                 uint8_t *red_present, int *red_dx)
 {
     /*
@@ -1966,11 +1666,14 @@ void Hit_Balloons(void)
 void All_functions(void)
 {
     /*
-     * 比赛主流程入口：先完成赛道循迹，再进入场内视觉戳球。
+     * 比赛主流程入口：先完成赛道循迹，再进入场内。
      * 两个函数都是阻塞式任务，只有前一个流程返回后才会开始后一个流程。
      */
-    Tack_line();
-    Hit_Balloons();
+    /* 陀螺仪辅助的高速循迹 */
+    LineFast_Run();
+
+    /* 第一步：从循迹结束的位置走到 7 号点位，到位就停 */
+    Nav_GotoOnce();
 }
 
 /* *

@@ -1,7 +1,9 @@
 #include "ir_nec.h"
 #include "Function.h"
 #include "Imu.h"
+#include "LineFast.h"
 #include "Motor.h"
+#include "Nav.h"
 #include "Serial.h"
 #include "Servo.h"
 #include "gpio.h"
@@ -109,11 +111,14 @@ void IR_work(void)
             break;
 
         case 0x47:
-            Tack_line();
+            /* 循迹 + 定点：跑完一圈后直接走到 7 号位停住 */
+            LineFast_Run();
+            Nav_GotoOnce();
             break;
 
         case 0x44:
-            Hit_Balloons();
+            /* 场内第一步：走到 7 号点位，到位就停 */
+            Nav_GotoOnce();
             break;
 
         case 0x43:

@@ -54,7 +54,7 @@
  *     排查用：排除光敏误触发 All_functions() 把主循环卡死的可能。
  * 0 = 正常比赛流程（光敏启动 + 红外遥控）。
  */
-#define IMU_LOOP_IMU_ONLY    1
+#define IMU_LOOP_IMU_ONLY    0
 
 /*
  * 航向符号。
