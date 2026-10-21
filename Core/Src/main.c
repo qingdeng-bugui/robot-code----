@@ -29,7 +29,6 @@
 #include "Function.h"
 #include "Imu.h"
 #include "Motor.h"
-#include "Nav.h"
 #include "OLED.h"
 #include "PID.h"
 #include "Photoresistor.h"
@@ -147,7 +146,6 @@ int main(void)
     while (1)
     {
         Imu_Update();
-        Nav_Update();       /* 里程计积分；未进入路线时是空操作 */
         Imu_HoldStep();     /* 航向保持：上电方向 0°，之后一直定住 */
         Imu_DebugToOled();  /* IMU_DEBUG_OLED=0 时编译成空函数，不占时间 */
 #if ((IMU_TEST_MODE != 0) || (IMU_LOOP_IMU_ONLY != 0))

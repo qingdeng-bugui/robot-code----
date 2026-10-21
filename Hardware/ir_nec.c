@@ -3,7 +3,7 @@
 #include "Imu.h"
 #include "LineFast.h"
 #include "Motor.h"
-#include "Nav.h"
+#include "Shoot.h"
 #include "Serial.h"
 #include "Servo.h"
 #include "gpio.h"
@@ -111,14 +111,13 @@ void IR_work(void)
             break;
 
         case 0x47:
-            /* 循迹 + 定点：跑完一圈后直接走到 7 号位停住 */
+            /* 循迹：陀螺仪辅助高速版 */
             LineFast_Run();
-            Nav_GotoOnce();
             break;
 
         case 0x44:
-            /* 场内第一步：走到 7 号点位，到位就停 */
-            Nav_GotoOnce();
+            /* 场内第一步：云台 120°，快速左移 25cm + 前移 5cm */
+            Shoot_Run();
             break;
 
         case 0x43:

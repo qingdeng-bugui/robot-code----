@@ -108,7 +108,7 @@ static float Imu_Wrap180(float angle)
     return angle - 180.0f;
 }
 
-/* 急停：目标速度和当前 PWM 一起清零，和 Function.c 的 Scene_StopCar 一致 */
+/* 急停：目标速度和当前 PWM 一起清零，避免控制器残留输出继续滑行 */
 static void Imu_StopCar(void)
 {
     Set_Target_Speed(1U, 0.0f);

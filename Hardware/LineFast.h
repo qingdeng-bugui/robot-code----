@@ -43,23 +43,11 @@
 #define LF_FINISH_GUARD_MS    1900U
 #define LF_FINISH_WHITE       12
 
-/* ---------------- 收尾停车位姿（闭环） ---------------- */
+/* 收尾结束时要归到的绝对方向：0 = 上电方向（车头朝北） */
+#define LF_FINISH_HEADING_DEG   0.0f
 
-/*
- * 原来收尾是两段定时弧线（60cm/s 转 365ms + 20cm/s 转 304ms），
- * 起点随过线速度漂移，终点自然跟着漂。
- * 现在改成：先主动刹停，再用陀螺仪转固定角，最后按编码器走固定距离。
- */
-#define LF_FINISH_USE_GYRO     1      /* 0 = 退回原来的定时动作 */
-#define LF_FINISH_TURN_DEG    120.0f  /* 收尾弧线总共左转多少度（原来 180°/s × 669ms ≈ 120°） */
-#define LF_FINISH_ARC_MM      280.0f  /* 收尾弧线总弧长（原来约 28cm） */
-#define LF_FINISH_VX           35.0f  /* 弧线前进速度 cm/s（35 时四轮不会饱和，路径形状不变） */
-#define LF_FINISH_OMEGA_MAX   260.0f  /* 弧线角速度上限 °/s */
-#define LF_FINISH_TIMEOUT_MS  2500U
-
-#define LF_BRAKE_SPEED        300     /* 主动刹车的反向轮速 °/s */
-#define LF_BRAKE_TIMEOUT_MS   250U
-#define LF_BRAKE_STOP_DPS      80     /* 四轮都低于此值就认为停住 °/s */
+/* 收尾动作就是原来的定时弧线（60cm/s 365ms + 20cm/s 304ms），
+ * 写在 LineFast.c 的终点分支里，没有额外参数。 */
 
 /* 启动对准：沿用原来标好的动作，改这里就能调 */
 #define LF_START_FWD_SPEED     60.0f

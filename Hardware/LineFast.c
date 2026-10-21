@@ -54,128 +54,6 @@ static void LF_LimitPair(float *l, float *r)
     }
 }
 
-/*
- * 主动刹停：反向给一点轮速，把"从终点确认到停住"的滑行距离
- * 从"和速度平方相关"变成"固定几十毫秒"，这是收尾位置漂移的主因。
- */
-static void LF_BrakeToStop(void)
-{
-    uint32_t t0 = HAL_GetTick();
-    float s1, s2, s3, s4;
-    float mx;
-
-    Set_Target_Speed(1U, -(float)LF_BRAKE_SPEED);
-    Set_Target_Speed(2U, -(float)LF_BRAKE_SPEED);
-    Set_Target_Speed(3U, -(float)LF_BRAKE_SPEED);
-    Set_Target_Speed(4U, -(float)LF_BRAKE_SPEED);
-
-    while ((uint32_t)(HAL_GetTick() - t0) < LF_BRAKE_TIMEOUT_MS)
-    {
-        s1 = fabsf(PID_Get_Current_Speed(1U));
-        s2 = fabsf(PID_Get_Current_Speed(2U));
-        s3 = fabsf(PID_Get_Current_Speed(3U));
-        s4 = fabsf(PID_Get_Current_Speed(4U));
-
-        mx = s1;
-        if (s2 > mx) { mx = s2; }
-        if (s3 > mx) { mx = s3; }
-        if (s4 > mx) { mx = s4; }
-
-        if (mx < (float)LF_BRAKE_STOP_DPS)
-        {
-            break;
-        }
-
-        HAL_Delay(5U);
-    }
-
-    LF_Stop();
-    HAL_Delay(20U);
-}
-
-/*
- * 收尾停车位姿：一条"角度 + 弧长"双闭环的弧线。
- *
- * 原来那两段是边走边转的弧（60cm/s 转 365ms、20cm/s 转 304ms），
- * 所以这里也走弧线，形状才对得上。角速度和前进速度的比例由
- * "剩余角度 / 剩余弧长"实时算出，保证角度和距离同时用完：
- *
- *     ω = (剩余角度 rad / 剩余弧长 cm) × 前进速度 cm/s
- *
- * 两个量都用陀螺仪和编码器闭环，因此停车位置与过线速度无关。
- */
-static void LF_FinishPose(void)
-{
-#if (LF_FINISH_USE_GYRO != 0)
-    if (Imu_IsOnline() != 0U)
-    {
-        const float vx = LF_FINISH_VX;               /* cm/s */
-        float target = Imu_GetYaw() + LF_FINISH_TURN_DEG;
-        float travelled = 0.0f;                      /* mm */
-        uint32_t t0 = HAL_GetTick();
-        uint32_t last = t0;
-        float dt;
-        float v;
-        float rem_ang;
-        float rem_dist;
-        float om;
-
-        while (((uint32_t)(HAL_GetTick() - t0) < LF_FINISH_TIMEOUT_MS) &&
-               (travelled < LF_FINISH_ARC_MM))
-        {
-            uint32_t now2 = HAL_GetTick();
-
-            dt = (float)(uint32_t)(now2 - last) / 1000.0f;
-            last = now2;
-            if (dt > 0.05f)
-            {
-                dt = 0.05f;
-            }
-
-            /* 四轮平均角速度 -> 车体线速度 cm/s -> 位移 mm */
-            v = (PID_Get_Current_Speed(1U) + PID_Get_Current_Speed(2U) +
-                 PID_Get_Current_Speed(3U) + PID_Get_Current_Speed(4U)) * 0.25f;
-            v = v * (PI / 180.0f) * WHEEL_R;
-            travelled += v * dt * 10.0f;
-
-            /* 剩余角度（rad）和剩余弧长（cm） */
-            rem_ang  = LF_Wrap180(target - Imu_GetYaw()) * (PI / 180.0f);
-            rem_dist = (LF_FINISH_ARC_MM - travelled) / 10.0f;
-
-            if (rem_dist < 2.0f)
-            {
-                rem_dist = 2.0f;    /* 收尾时防止除零爆冲 */
-            }
-
-            om = (rem_ang / rem_dist) * vx * (180.0f / PI);
-
-            if (om > LF_FINISH_OMEGA_MAX)
-            {
-                om = LF_FINISH_OMEGA_MAX;
-            }
-            else if (om < -LF_FINISH_OMEGA_MAX)
-            {
-                om = -LF_FINISH_OMEGA_MAX;
-            }
-
-            Car_Move(vx, 0.0f, om);
-            HAL_Delay(10U);
-        }
-
-        LF_Stop();
-        HAL_Delay(30U);
-        return;
-    }
-#endif
-
-    /* 兜底：陀螺离线时用原来的定时动作，功能不丢 */
-    Car_Move(60.0f, 0.0f, 180.0f);
-    HAL_Delay(365U);
-    Car_Move(20.0f, 0.0f, 180.0f);
-    HAL_Delay(304U);
-    LF_Stop();
-}
-
 void LineFast_Run(void)
 {
     int i;
@@ -237,9 +115,17 @@ void LineFast_Run(void)
             white_cnt++;
             if (white_cnt >= LF_FINISH_WHITE)
             {
-                /* 先刹停（位置与速度无关），再按陀螺角 + 编码器距离走固定收尾动作 */
-                LF_BrakeToStop();
-                LF_FinishPose();
+                /* 原始收尾动作：急停 -> 边走边左转 -> 再走一小段 -> 停 */
+                LF_Stop();
+                HAL_Delay(30U);
+                Car_Move(60.0f, 0.0f, 180.0f);
+                HAL_Delay(365U);
+                Car_Move(20.0f, 0.0f, 180.0f);
+                HAL_Delay(304U);
+                LF_Stop();
+
+                /* 收尾把车头转回上电方向（0°），陀螺闭环 */
+                (void)Imu_TurnTo(LF_FINISH_HEADING_DEG);
                 break;
             }
         }

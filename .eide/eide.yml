@@ -83,10 +83,10 @@ virtualFolder:
         - path: Hardware/Photoresistor.h
         - path: Hardware/Imu.c
         - path: Hardware/Imu.h
-        - path: Hardware/Nav.c
-        - path: Hardware/Nav.h
         - path: Hardware/LineFast.c
         - path: Hardware/LineFast.h
+        - path: Hardware/Shoot.c
+        - path: Hardware/Shoot.h
       folders: []
     - name: ::CMSIS
       files: []
