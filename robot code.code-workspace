@@ -1,0 +1,77 @@
+{
+    "folders": [
+        {
+            "path": "."
+        }
+    ],
+    "settings": {
+        "terminal.integrated.shellIntegration.enabled": false,
+        "files.autoGuessEncoding": true,
+        "C_Cpp.intelliSenseEngine": "default",
+        "C_Cpp.errorSquiggles": "disabled",
+        "C_Cpp.default.includePath": [
+            "${workspaceFolder}",
+            "${workspaceFolder}/Core/Inc",
+            "${workspaceFolder}/Drivers/STM32G4xx_HAL_Driver/Inc",
+            "${workspaceFolder}/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy",
+            "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+            "${workspaceFolder}/Drivers/CMSIS/Include",
+            "${workspaceFolder}/Hardware",
+            "${workspaceFolder}/.cmsis/include",
+            "${workspaceFolder}/MDK-ARM/RTE/_robot_code"
+        ],
+        "C_Cpp.default.defines": [
+            "USE_HAL_DRIVER",
+            "STM32G474xx"
+        ],
+        "C_Cpp.default.browse.path": [
+            "${workspaceFolder}/Core",
+            "${workspaceFolder}/Drivers",
+            "${workspaceFolder}/Hardware",
+            "${workspaceFolder}/.cmsis/include",
+            "${workspaceFolder}/MDK-ARM/RTE/_robot_code"
+        ],
+        "C_Cpp.default.intelliSenseMode": "windows-gcc-arm",
+        "C_Cpp.default.compilerPath": "C:/Users/hubing/.eide/tools/gcc_arm/bin/arm-none-eabi-gcc.exe",
+        "C_Cpp.default.compilerArgs": [
+            "-mcpu=cortex-m4",
+            "-mthumb",
+            "-mfpu=fpv4-sp-d16",
+            "-mfloat-abi=hard"
+        ],
+        "C_Cpp.default.cStandard": "c11",
+        "files.associations": {
+            ".eideignore": "ignore",
+            "*.a51": "a51",
+            "*.h": "c",
+            "*.c": "c",
+            "*.hxx": "cpp",
+            "*.hpp": "cpp",
+            "*.c++": "cpp",
+            "*.cpp": "cpp",
+            "*.cxx": "cpp",
+            "*.cc": "cpp"
+        },
+        "[yaml]": {
+            "editor.insertSpaces": true,
+            "editor.tabSize": 4,
+            "editor.autoIndent": "advanced"
+        }
+    },
+    "extensions": {
+        "recommendations": [
+            "cl.eide",
+            "ms-vscode.cpptools",
+            "keroc.hex-fmt",
+            "xiaoyongdong.srecord",
+            "hars.cppsnippets",
+            "zixuanwang.linkerscript",
+            "redhat.vscode-yaml",
+            "IBM.output-colorizer",
+            "cschlosser.doxdocgen",
+            "ms-vscode.vscode-serial-monitor",
+            "dan-c-underwood.arm",
+            "marus25.cortex-debug"
+        ]
+    }
+}

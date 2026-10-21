@@ -1,0 +1,43 @@
+{
+    "configurations": [
+        {
+            "name": "STM32G474",
+            "includePath": [
+                "${workspaceFolder}",
+                "${workspaceFolder}/Core/Inc",
+                "${workspaceFolder}/Drivers/STM32G4xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32G4xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32G4xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include",
+                "${workspaceFolder}/Hardware",
+                "${workspaceFolder}/.cmsis/include",
+                "${workspaceFolder}/MDK-ARM/RTE/_robot_code"
+            ],
+            "defines": [
+                "USE_HAL_DRIVER",
+                "STM32G474xx"
+            ],
+            "cStandard": "c11",
+            "compilerPath": "C:/Users/hubing/.eide/tools/gcc_arm/bin/arm-none-eabi-gcc.exe",
+            "compilerArgs": [
+                "-mcpu=cortex-m4",
+                "-mthumb",
+                "-mfpu=fpv4-sp-d16",
+                "-mfloat-abi=hard"
+            ],
+            "intelliSenseMode": "windows-gcc-arm",
+            "browse": {
+                "path": [
+                    "${workspaceFolder}/Core",
+                    "${workspaceFolder}/Drivers",
+                    "${workspaceFolder}/Hardware",
+                    "${workspaceFolder}/.cmsis/include",
+                    "${workspaceFolder}/MDK-ARM/RTE/_robot_code"
+                ],
+                "limitSymbolsToIncludedHeaders": false
+            },
+            "configurationProvider": "cl.eide"
+        }
+    ],
+    "version": 4
+}
