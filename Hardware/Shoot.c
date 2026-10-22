@@ -276,8 +276,8 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
     int red_dx = 0;
     uint8_t red = 0U;
     uint8_t cmd;
-    uint8_t red_cnt = 0U;
     uint8_t target_cnt = 0U;
+    uint8_t none_cnt = 0U;
     uint8_t lost_cnt = 0U;
     uint32_t t0;
     uint32_t last;
@@ -293,32 +293,54 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
     uint8_t phase;
     uint8_t phase_prev;
 
+    /* ---- 0) 到点先停稳，并丢掉移动途中积压的旧帧 ---- */
+    Shoot_Stop();
+    HAL_Delay(100U);
+    Visual_Rx_Clear();
+    HAL_Delay(30U);
+
     /* ---- 1) 判红 / 判目标：最多 SHOOT_SEEK_MS ---- */
     t0 = HAL_GetTick();
     while ((uint32_t)(HAL_GetTick() - t0) < SHOOT_SEEK_MS)
     {
         cmd = Shoot_Poll(&dx, &can_hit, &red, &red_dx);
 
+        if (cmd == VISUAL_COMMAND_INVALID)
+        {
+            HAL_Delay(5U);
+            continue;
+        }
+
+        /*
+         * 红球一票否决：只要这一帧带了红球标记（none,red,x 或 dx,n,red,x），
+         * 立刻放弃该点，不出针也不移动。
+         */
+        if (red != 0U)
+        {
+            return;
+        }
+
         if (cmd == VISUAL_COMMAND_TARGET)
         {
             target_cnt++;
+            break;      /* 已确认可戳，不用再等 */
         }
-        else if ((cmd == VISUAL_COMMAND_NONE) && (red != 0U))
+
+        if (cmd == VISUAL_COMMAND_NONE)
         {
-            red_cnt++;
+            none_cnt++;
+            if (none_cnt >= SHOOT_JUDGE_FRAMES)
+            {
+                return; /* 收够帧仍没有目标，原地不动 */
+            }
         }
 
         HAL_Delay(5U);
     }
 
-    if ((red_cnt >= SHOOT_RED_FRAMES) && (target_cnt == 0U))
-    {
-        return; /* 红球：原地不动 */
-    }
-
     if (target_cnt == 0U)
     {
-        return; /* 没看到目标：原地不动，绝不盲戳 */
+        return;         /* 没看到目标：原地不动，绝不盲戳 */
     }
 
     /* ---- 2) 对准：最多 SHOOT_AIM_MAX_MS ---- */
@@ -327,7 +349,7 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
     {
         cmd = Shoot_WaitFrame(&dx, &can_hit, &red, &red_dx, 20U);
 
-        if (cmd == VISUAL_COMMAND_TARGET)
+        if ((cmd == VISUAL_COMMAND_TARGET) && (red == 0U))
         {
             Shoot_Aim(&servo, dx, SHOOT_AIM_GAIN, SHOOT_AIM_DEADBAND, SHOOT_AIM_MAX_STEP);
 
@@ -338,65 +360,19 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
         }
     }
 
-    /* ---- 3) 靠近：沿云台指向前进，直到 can_hit ---- */
+    /*
+     * ---- 3) 出针 ----
+     * 到点就已经在可戳距离内，所以不再做"等 can_hit 才靠近"，
+     * 直接按参考工程 can_hit=1 之后的流程走：出针 -> 慢速直推 -> 反复扎。
+     */
     bearing = (servo - SHOOT_SERVO_CENTER) * (PI / 180.0f);
     bx = cosf(bearing);
     by = sinf(bearing);
 
-    t0 = HAL_GetTick();
-    last = t0;
-    lost_cnt = 0U;
-    while (moved < SHOOT_APPROACH_MAX_MM)
-    {
-        uint32_t now = HAL_GetTick();
-
-        dt = (float)(uint32_t)(now - last) / 1000.0f;
-        last = now;
-        if (dt > 0.05f)
-        {
-            dt = 0.05f;
-        }
-
-        cmd = Shoot_Poll(&dx, &can_hit, &red, &red_dx);
-        if ((cmd == VISUAL_COMMAND_TARGET) && (can_hit == 1))
-        {
-            break;
-        }
-
-        /* 靠近途中目标消失：别再往前顶了 */
-        if ((cmd == VISUAL_COMMAND_NONE) && (red == 0U))
-        {
-            lost_cnt++;
-            if (lost_cnt >= SHOOT_LOST_FRAMES)
-            {
-                Shoot_Stop();
-                return;
-            }
-        }
-        else if (cmd == VISUAL_COMMAND_TARGET)
-        {
-            lost_cnt = 0U;
-        }
-        else
-        {
-            /* 本拍没有新帧 */
-        }
-
-        Shoot_BodySpeed(&vx, &vy);
-        moved += sqrtf((vx * vx) + (vy * vy)) * dt * 10.0f;
-
-        Car_Move(SHOOT_APPROACH_SPEED * bx, SHOOT_APPROACH_SPEED * by,
-                 Shoot_HoldOmega(heading_deg));
-        HAL_Delay(5U);
-    }
-
-    Shoot_Stop();
-
-    /* ---- 4) 出针 ---- */
     Servo_SetAngle(1, SHOOT_NEEDLE_OUT);
     HAL_Delay(SHOOT_NEEDLE_OUT_MS);
 
-    /* ---- 5+6) 先直推，再反复出针 + 持续前移，直到目标消失 ---- */
+    /* ---- 4) 先直推，再反复出针 + 持续前移，直到目标消失 ---- */
     t0 = HAL_GetTick();
     last = t0;
     phase_prev = 1U;
@@ -444,7 +420,8 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
         }
         else if (cmd == VISUAL_COMMAND_NONE)
         {
-            if (red == 0U)
+            /* 出针后至少 SHOOT_MIN_STAB_MS 才允许判破，避免刚出针就误判 */
+            if ((red == 0U) && (elapsed >= (float)SHOOT_MIN_STAB_MS))
             {
                 lost_cnt++;
                 if (lost_cnt >= SHOOT_LOST_FRAMES)
