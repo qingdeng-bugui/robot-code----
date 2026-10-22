@@ -3,9 +3,9 @@
 #include "Imu.h"
 #include "LineFast.h"
 #include "Motor.h"
-#include "Shoot.h"
 #include "Serial.h"
 #include "Servo.h"
+#include "Shoot.h"
 #include "gpio.h"
 #include "tim.h"
 #include "track.h"
@@ -108,74 +108,20 @@ void IR_work(void)
         /* 根据红外遥控器的命令码执行对应动作 */
         switch (frame[2])
         {
-        case 0x45:
-            /* 定角度控制：转到 0°（上电时的车头方向）并继续定住。 */
-            (void)Imu_TurnTo(0.0f);
-            break;
-
-        case 0x46:
-            /* 转弯：在当前航向上再转 90°，正数 = 逆时针左转。
-             * 可以连按，每按一次累加 90°，转完自动保持在新角度。 */
-            (void)Imu_TurnBy(90.0f);
-            break;
-
-        case 0x47:
-            /* 循迹：陀螺仪辅助高速版 */
-            LineFast_Run();
-            break;
-
-        case 0x44:
-            /* 场内第一步：云台 120°，快速左移 25cm + 前移 5cm */
-            Shoot_Run();
-            break;
-
-        case 0x43:
-            Servo_SetAngle(2, 168);
-            break;
-
-        case 0x08:
-            Imu_HoldPause(800U);
-            Car_Move(0.0f, 30.0f, 0.0f);
-            break;
-
-        case 0x5A:
-            Imu_HoldPause(800U);
-            Car_Move(0.0f, -30.0f, 0.0f);
-            break;
-
-        case 0x18:
-            Imu_HoldPause(800U);
-            Car_Move(30.0f, 0.0f, 0.0f);
-            break;
-
-        case 0x52:
-            Imu_HoldPause(800U);
-            Car_Move(-30.0f, 0.0f, 0.0f);
-            break;
-
         case 0x16:
-            Imu_HoldPause(800U);
-            Car_Move(0.0f, 0.0f, 90.0f);
-            break;
-
-        case 0x0d:
-            Imu_HoldPause(800U);
-            Car_Move(0.0f, 0.0f, -90.0f);
-            break;
-
-        case 0x1c:
-            /* 停车，并把"当前朝向"重新定为要定住的角度。
-             * 车被推歪之后按一下，它就会以现在这个方向为新的 0 基准。 */
-            Car_Move(0.0f, 0.0f, 0.0f);
-            Imu_HoldStart(Imu_GetYaw());
-            break;
-
-        case 0x40:
             function_flag = 1;
             break;
 
-        case 0x15:
+        case 0x0D:
             if (function_flag == 1)
+            {
+                function_flag = 2;
+            }
+            break;
+
+        case 0x1C:
+
+            if (function_flag == 2)
             {
                 function_flag = 0;
                 All_functions();
