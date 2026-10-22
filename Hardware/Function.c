@@ -1,15 +1,15 @@
 #include "Function.h"
-#include "adc.h"
 #include "LineFast.h"
 #include "Motor.h"
 #include "PID.h"
+#include "Photoresistor.h"
 #include "Serial.h"
 #include "Servo.h"
 #include "Shoot.h"
+#include "adc.h"
 #include "ir_nec.h"
 #include "track.h"
 #include "usart.h"
-#include "Photoresistor.h"
 #include <math.h>
 #include <string.h>
 
@@ -26,7 +26,6 @@
  * 因此可以吸收树莓派短时间内连续发送的数据突发。
  */
 #define VISUAL_RX_BUFFER_SIZE 512U
-
 
 /* 视觉解析结果的内部命令类型，避免在调用处直接比较字符串。
  * 具体取值定义在 Function.h，Shoot.c 也要用。 */
@@ -235,7 +234,7 @@ static uint8_t Visual_ParseSignedInt(const char *line, uint8_t *index, int *valu
 }
 
 uint8_t Visual_ParseLine(const char *line, int *dx, int *can_hit,
-                                uint8_t *red_present, int *red_dx)
+                         uint8_t *red_present, int *red_dx)
 {
     /*
      * 解析树莓派发送的单行协议：
@@ -339,7 +338,7 @@ void All_functions(void)
      * 比赛主流程入口：先完成赛道循迹，再进入场内。
      * 两个函数都是阻塞式任务，只有前一个流程返回后才会开始后一个流程。
      */
-    /* 一进来就上锁：两条启动路径都会走到这里 */
+    /* 一进来就上锁：两条启动路径都会走到这里*/
     race_locked = 1U;
 
     /* 陀螺仪辅助的高速循迹 */
@@ -365,7 +364,7 @@ void Photoresistor(void)
     }
 
     // 处理光敏电阻的逻辑
-    if (car_start_flag==1)  // 处理启动的情况
+    if (car_start_flag == 1) // 处理启动的情况
     {
         /*
          * 标志位必须在这里清掉：中断里置 1 之后不会自动清零，
@@ -375,13 +374,12 @@ void Photoresistor(void)
         car_start_flag = 0;
         All_functions();
     }
-    else    // 处理未启动的情况
+    else // 处理未启动的情况
     {
-        if((HAL_ADC_GetState(&hadc1) & HAL_ADC_STATE_REG_BUSY) == 0U) //如果ADC不在转换中，则启动下一次转换
+        if ((HAL_ADC_GetState(&hadc1) & HAL_ADC_STATE_REG_BUSY) == 0U) // 如果ADC不在转换中，则启动下一次转换
         {
             HAL_ADC_Start_IT(&hadc1);
         }
         HAL_Delay(10);
     }
 }
-
