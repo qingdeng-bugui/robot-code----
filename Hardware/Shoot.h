@@ -77,13 +77,13 @@ typedef struct
 #define SHOOT_TURN5A_DEG  (-30.0f) /* 相对当前航向：右转 30° */
 #define SHOOT_FWD5_MM     520.0f   /* 再直行 52cm */
 #define SHOOT_TURN5_DEG   120.0f   /* 相对当前航向：左转 120°，转到场地正东 */
-#define SHOOT_FWD5B_MM    270.0f   /* 转向正东后前进 27cm */
+#define SHOOT_FWD5B_MM    290.0f   /* 转向正东后前进 30cm */
 #define SHOOT_GIMBAL5_DEG 168.0f   /* 5 号位的云台角度（正前方） */
 
 /* ---------------- 第十五段：5 号位 -> 8 号位 ---------------- */
 
 #define SHOOT_TURN8_DEG   (-60.0f) /* 相对当前航向：右转 60° */
-#define SHOOT_FWD8_MM     280.0f   /* 再前进 27cm（沿车头方向） */
+#define SHOOT_FWD8_MM     278.0f   /* 再前进 27cm（沿车头方向） */
 #define SHOOT_GIMBAL8_DEG 168.0f   /* 8 号位的云台角度 */
 
 /* ---------------- 行走 ---------------- */
@@ -123,18 +123,18 @@ typedef struct
 
 /* ---------------- 扎击 ---------------- */
 
-#define SHOOT_NEEDLE_OUT_MS 150U  /* 出针后等舵机走完 */
-#define SHOOT_PUSH_SPEED    6.0f  /* 直推速度 cm/s */
+#define SHOOT_NEEDLE_OUT_MS 130U  /* 出针后等舵机走完 */
+#define SHOOT_PUSH_SPEED    8.0f  /* 直推速度 cm/s */
 #define SHOOT_PUSH_MS       400U  /* 直推时长 */
 #define SHOOT_JAB_SPEED     3.0f  /* 反复扎时的前进速度 cm/s */
 #define SHOOT_JAB_IN_MS     180U  /* 收针保持 */
 #define SHOOT_JAB_OUT_MS    200U  /* 出针保持 */
 #define SHOOT_STAB_MAX_MS   2500U /* 出针后总时限 */
-#define SHOOT_MIN_STAB_MS    600U /* 出针后至少这么长才允许判破，防误判 */
+#define SHOOT_MIN_STAB_MS   300U  /* 出针后至少这么长才允许判破，防误判 */
 #define SHOOT_TRIM_GAIN     0.05f /* 扎击期间云台微调 */
 #define SHOOT_TRIM_DEADBAND 20
 #define SHOOT_TRIM_MAX_STEP 2.0f
-#define SHOOT_RETRACT_MS    200U /* 收针后稳定 */
+#define SHOOT_RETRACT_MS    180U /* 收针后稳定 */
 
 /* ---------------- 回位 ---------------- */
 

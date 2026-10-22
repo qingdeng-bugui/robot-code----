@@ -92,6 +92,15 @@ void IR_work(void)
     ir_frame_ready = 0;
     __enable_irq();
 
+    /*
+     * 比赛已经开始过（红外或光敏任一路径）：帧照样取走丢掉，
+     * 但一个命令都不执行，避免比赛中残留的按键在赛后把比赛重跑。
+     */
+    if (race_locked != 0U)
+    {
+        return;
+    }
+
     /* NEC 协议要求地址和地址反码、命令和命令反码分别互为反码 */
     if ((frame[0] == (uint8_t)~frame[1]) &&
         (frame[2] == (uint8_t)~frame[3]))

@@ -12,6 +12,12 @@
 #define VISUAL_COMMAND_NONE    2U
 #define VISUAL_COMMAND_OK      3U
 
+/*
+ * 比赛锁：任意一种方式（红外 0x15 / 光敏）启动过一次比赛后置 1。
+ * 置 1 之后红外按键与光敏都不再生效，必须重新上电才能再跑。
+ */
+extern volatile uint8_t race_locked;
+
 /* USART1视觉接收：中断接收字节，场内循环解析完整帧。 */
 void Visual_Rx_Init(void);
 void Visual_Rx_Clear(void);

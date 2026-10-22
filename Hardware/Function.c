@@ -326,12 +326,22 @@ uint8_t Visual_ParseLine(const char *line, int *dx, int *can_hit,
     return VISUAL_COMMAND_TARGET;
 }
 
+/*
+ * 比赛锁：只要用任意一种方式（红外 0x15 或光敏）启动过一次，
+ * 这里就置 1，之后红外按键和光敏都不再生效，必须重新上电才能再跑。
+ * 目的：防止比赛中途的按键残留、场地灯光变化等场外干扰把比赛重跑。
+ */
+volatile uint8_t race_locked = 0U;
+
 void All_functions(void)
 {
     /*
      * 比赛主流程入口：先完成赛道循迹，再进入场内。
      * 两个函数都是阻塞式任务，只有前一个流程返回后才会开始后一个流程。
      */
+    /* 一进来就上锁：两条启动路径都会走到这里 */
+    race_locked = 1U;
+
     /* 陀螺仪辅助的高速循迹 */
     LineFast_Run();
 
@@ -345,9 +355,24 @@ void All_functions(void)
  */
 void Photoresistor(void)
 {
+    /*
+     * 已经用任意方式启动过比赛：彻底停掉光敏通道，
+     * 不再重启 ADC 中断，也不响应任何新的强光，避免比赛结束后被再次触发。
+     */
+    if (race_locked != 0U)
+    {
+        return;
+    }
+
     // 处理光敏电阻的逻辑
     if (car_start_flag==1)  // 处理启动的情况
     {
+        /*
+         * 标志位必须在这里清掉：中断里置 1 之后不会自动清零，
+         * 不清的话主循环每圈都会重新调用 All_functions()，
+         * 整场比赛会被反复重跑（表现为跑完继续在场地里转圈）。
+         */
+        car_start_flag = 0;
         All_functions();
     }
     else    // 处理未启动的情况

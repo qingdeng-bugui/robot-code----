@@ -28,12 +28,12 @@
 /* ---- 定角度控制（可调） ---- */
 #define IMU_TURN_TOL_DEG      1.5f     /* 到位死区，可调 */
 #define IMU_TURN_RATE_TOL     20.0f    /* 到位时角速度门限 °/s */
-#define IMU_TURN_OMEGA_MAX    180.0f   /* 最高转向角速度 °/s，可调 */
+#define IMU_TURN_OMEGA_MAX    260.0f   /* 最高转向角速度 °/s（轮速约 1187°/s，仍低于 1500 上限） */
 #define IMU_TURN_OMEGA_MIN    18.0f    /* 最小转向角速度，克服静摩擦，可调 */
-#define IMU_TURN_KP           2.5f     /* 比例系数 1/s，可调 */
-#define IMU_TURN_A_DECEL      300.0f   /* 制动减速度 °/s^2，可调 */
+#define IMU_TURN_KP           4.0f     /* 比例系数 1/s，转向快慢主要看它 */
+#define IMU_TURN_A_DECEL      700.0f   /* 制动减速度 °/s^2，可调 */
 #define IMU_TURN_TIMEOUT_MS   3000U    /* 单遍超时（90° 约 0.6s，3s 很宽裕） */
-#define IMU_TURN_SETTLE_MS    150U     /* 停车后静置复测时间 */
+#define IMU_TURN_SETTLE_MS    80U      /* 停车后静置复测时间 */
 #define IMU_TURN_PASSES       3U       /* 最多修正几遍 */
 #define IMU_TURN_STABLE_CNT   3U       /* 连续几拍满足死区才算到位 */
 
