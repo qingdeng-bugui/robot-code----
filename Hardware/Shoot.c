@@ -1,26 +1,38 @@
 #include "Shoot.h"
-#include "main.h"
 #include "Function.h"
 #include "Imu.h"
 #include "Motor.h"
 #include "PID.h"
 #include "Serial.h"
 #include "Servo.h"
+#include "main.h"
 #include <math.h>
 
 /* 点位表：每一段都是相对上一个点位的位移，戳完会回到该点位，所以段与段之间可以直接累加。
- * 字段：方向 / 前移 / 左移 / 云台角 / 是否判可戳。后续点位量好后往下加即可。 */
+ * 字段：转角 / 前移 / 左移 / 云台角 / 是否判可戳。
+ * 转角写的是增量（正数左转、负数右转）；运行时累加成期望航向，
+ * 转向用 Imu_TurnTo(期望航向)，整段平移再用 Shoot_HoldOmega(期望航向) 持续纠偏。 */
 static const Shoot_Leg_t SHOOT_LEGS[] =
-{
-    /* 方向(deg)  前移(mm)        左移(mm)              云台角             判可戳 */
-    { 0.0f,       SHOOT_FWD_MM,  SHOOT_LEFT_MM,        SHOOT_GIMBAL_DEG,  1U }, /* 循迹终点 -> 7 号位 */
-    { 0.0f,       SHOOT_FWD2_MM, -(SHOOT_RIGHT2_MM),   SHOOT_GIMBAL2_DEG, 1U }, /* -> 6 号位：前21cm、右3cm */
-    { 0.0f,       0.0f,          -(SHOOT_RIGHT3_MM),   SHOOT_GIMBAL2_DEG, 0U }, /* 探路：向右 25cm */
-    { 0.0f,       SHOOT_FWD3_MM, 0.0f,                 SHOOT_GIMBAL2_DEG, 0U }, /* 探路：向前 30cm */
-    { SHOOT_HEADING3_DEG, SHOOT_FWD4_MM, 0.0f,         SHOOT_GIMBAL3_DEG, 1U }  /* 左转 40° 再前进 9cm -> 3 号位 */
+    {
+        /* 转角(deg)  前移(mm)        左移(mm)              云台角             判可戳 */
+        {0.0f, SHOOT_FWD_MM, SHOOT_LEFT_MM, SHOOT_GIMBAL_DEG, 1U},                   /* 循迹终点 -> 7 号位 */
+        {0.0f, SHOOT_FWD2_MM, -(SHOOT_RIGHT2_MM), SHOOT_GIMBAL2_DEG, 1U},            /* -> 6 号位：前21cm、右3cm */
+        {0.0f, 0.0f, -(SHOOT_RIGHT3_MM), SHOOT_GIMBAL2_DEG, 0U},                     /* 探路：向右 25cm */
+        {0.0f, SHOOT_FWD3_MM, 0.0f, SHOOT_GIMBAL2_DEG, 0U},                          /* 探路：向前 30cm */
+        {SHOOT_TURN3_DEG, SHOOT_FWD4_MM, SHOOT_LEFT4_MM, SHOOT_GIMBAL3_DEG, 1U},     /* 左转 40°，再按 117/17 走 -> 3 号位 */
+        {SHOOT_TURN4_DEG, -(SHOOT_BACK4_MM), 0.0f, SHOOT_GIMBAL4_DEG, 0U},           /* 右转 40° 转回 0° 后先后退 5cm */
+        {0.0f, SHOOT_FWD4B_MM, -(SHOOT_RIGHT4_MM), SHOOT_GIMBAL4_DEG, 1U},           /* 右移 13cm + 前进 10cm -> 4 号位 */
+        {0.0f, SHOOT_FWD_TO1_MM, 0.0f, SHOOT_GIMBAL1_DEG, 1U},                       /* 前进 25cm -> 1 号位 */
+        {0.0f, 0.0f, -(SHOOT_RIGHT1_MM), SHOOT_GIMBAL_TO2_DEG, 0U},                  /* 右移 10cm */
+        {0.0f, SHOOT_FWD1_MM, -(SHOOT_RIGHT1B_MM), SHOOT_GIMBAL_TO2_DEG, 0U},        /* 斜着走：前15cm + 右15cm */
+        {SHOOT_TURN2_DEG, SHOOT_FWD2B_MM, SHOOT_LEFT2_MM, SHOOT_GIMBAL_TO2_DEG, 1U}, /* 掉头 180°，再前 1cm + 左 6cm -> 2 号位 */
+        {0.0f, 0.0f, -(SHOOT_RIGHT2B_MM), SHOOT_GIMBAL_TO2_DEG, 0U},                 /* 右移 15cm */
+        {SHOOT_TURN5A_DEG, SHOOT_FWD5_MM, 0.0f, SHOOT_GIMBAL_TO2_DEG, 0U},           /* 右转 30° 后直行 45cm */
+        {SHOOT_TURN5_DEG, SHOOT_FWD5B_MM, 0.0f, SHOOT_GIMBAL5_DEG, 1U},              /* 左转 120° 转到正东，前进 27cm -> 5 号位 */
+        {SHOOT_TURN8_DEG, SHOOT_FWD8_MM, 0.0f, SHOOT_GIMBAL8_DEG, 1U}                /* 右转 60°，前进 27cm -> 8 号位 */
 };
 
-#define SHOOT_LEG_COUNT  (sizeof(SHOOT_LEGS) / sizeof(SHOOT_LEGS[0]))
+#define SHOOT_LEG_COUNT (sizeof(SHOOT_LEGS) / sizeof(SHOOT_LEGS[0]))
 
 static float Shoot_Wrap180(float a)
 {
@@ -40,7 +52,7 @@ static void Shoot_BodySpeed(float *vx, float *vy)
     float lr = PID_Get_Current_Speed(3U) * (PI / 180.0f) * WHEEL_R;
     float rr = PID_Get_Current_Speed(4U) * (PI / 180.0f) * WHEEL_R;
 
-    *vx = ( lf + rf + lr + rr) * 0.25f;
+    *vx = (lf + rf + lr + rr) * 0.25f;
     *vy = (-lf + rf + lr - rr) * 0.25f;
 }
 
@@ -301,12 +313,12 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
 
     if ((red_cnt >= SHOOT_RED_FRAMES) && (target_cnt == 0U))
     {
-        return;     /* 红球：原地不动 */
+        return; /* 红球：原地不动 */
     }
 
     if (target_cnt == 0U)
     {
-        return;     /* 没看到目标：原地不动，绝不盲戳 */
+        return; /* 没看到目标：原地不动，绝不盲戳 */
     }
 
     /* ---- 2) 对准：最多 SHOOT_AIM_MAX_MS ---- */
@@ -437,7 +449,7 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
                 lost_cnt++;
                 if (lost_cnt >= SHOOT_LOST_FRAMES)
                 {
-                    break;      /* 目标消失 = 扎破了 */
+                    break; /* 目标消失 = 扎破了 */
                 }
             }
         }
@@ -471,33 +483,35 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
 void Shoot_Run(void)
 {
     uint8_t i;
+    float expect = 0.0f; /* 期望航向：上电 0°，各段 turn_deg 累加 */
 
     (void)Shoot_VisionStart();
 
     for (i = 0U; i < (uint8_t)SHOOT_LEG_COUNT; i++)
     {
-        /* 这一段要求的车头方向，和当前不一致就先转过去 */
-        if (Imu_IsOnline() != 0U)
-        {
-            float d = Shoot_Wrap180(SHOOT_LEGS[i].heading_deg - Imu_GetYaw());
+        /* 表里写的是增量，累加成这一段的绝对期望航向 */
+        expect += SHOOT_LEGS[i].turn_deg;
 
-            if ((d > 2.0f) || (d < -2.0f))
-            {
-                (void)Imu_TurnTo(SHOOT_LEGS[i].heading_deg);
-            }
+        /* 需要转向的段：对齐到累计后的绝对角度，消掉单次转向残差 */
+        if ((Imu_IsOnline() != 0U) &&
+            ((SHOOT_LEGS[i].turn_deg > 2.0f) || (SHOOT_LEGS[i].turn_deg < -2.0f)))
+        {
+            (void)Imu_TurnTo(expect);
         }
 
-        /* 云台转到该点位自己的角度、钢针收回 */
+        /*
+         * 关键：整段平移/靠近/扎击/回位都用陀螺仪约束到 expect，
+         * 不是锁在"转完那一刻的实际航向"，这样残差和途中被撞歪都会被拉回来。
+         */
         Servo_SetAngle(2, SHOOT_LEGS[i].gimbal_deg);
         Servo_SetAngle(1, SHOOT_NEEDLE_IN);
 
-        Shoot_MoveBy(SHOOT_LEGS[i].fwd_mm, SHOOT_LEGS[i].left_mm, SHOOT_SPEED,
-                     SHOOT_LEGS[i].heading_deg);
+        Shoot_MoveBy(SHOOT_LEGS[i].fwd_mm, SHOOT_LEGS[i].left_mm, SHOOT_SPEED, expect);
 
         /* 只有标记为"判可戳"的段，到点后才做判红/靠近/扎击 */
         if (SHOOT_LEGS[i].stab != 0U)
         {
-            Shoot_TryStab(SHOOT_LEGS[i].gimbal_deg, SHOOT_LEGS[i].heading_deg);
+            Shoot_TryStab(SHOOT_LEGS[i].gimbal_deg, expect);
         }
     }
 
