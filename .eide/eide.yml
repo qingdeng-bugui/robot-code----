@@ -87,6 +87,8 @@ virtualFolder:
         - path: Hardware/LineFast.h
         - path: Hardware/Shoot.c
         - path: Hardware/Shoot.h
+        - path: Hardware/Search.c
+        - path: Hardware/Search.h
       folders: []
     - name: ::CMSIS
       files: []

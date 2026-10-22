@@ -3,6 +3,7 @@
 #include "Imu.h"
 #include "Motor.h"
 #include "PID.h"
+#include "Search.h"
 #include "Serial.h"
 #include "Servo.h"
 #include "main.h"
@@ -493,4 +494,14 @@ void Shoot_Run(void)
     }
 
     Shoot_Stop();
+
+    /*
+     * 全部点位都走完、最后一个点位的判红/戳击流程也返回了，才开始兜底搜寻：
+     * 后退 5cm -> 原地掉头 180° -> 进入搜寻模式（不返回，跑到断电）。
+     * 中途任何点位结束都不会走到这里。
+     */
+    Shoot_MoveBy(-SHOOT_FINAL_BACK_MM, 0.0f, SHOOT_RETURN_SPEED, expect);
+    (void)Imu_TurnBy(SHOOT_FINAL_TURN_DEG);
+
+    Search_Run();
 }

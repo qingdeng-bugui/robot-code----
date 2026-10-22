@@ -86,6 +86,11 @@ typedef struct
 #define SHOOT_FWD8_MM     278.0f   /* 再前进 27cm（沿车头方向） */
 #define SHOOT_GIMBAL8_DEG 168.0f   /* 8 号位的云台角度 */
 
+/* ---------------- 全部点位跑完后的收尾（兜底搜寻） ---------------- */
+
+#define SHOOT_FINAL_BACK_MM  50.0f  /* 先后退 5cm */
+#define SHOOT_FINAL_TURN_DEG 180.0f /* 再原地掉头 180° */
+
 /* ---------------- 行走 ---------------- */
 
 #define SHOOT_SPEED      60.0f /* 平移速度 cm/s */
