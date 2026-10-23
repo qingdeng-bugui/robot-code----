@@ -52,7 +52,7 @@ typedef struct
 
 #define SHOOT_TURN4_DEG   (-40.0f) /* 相对当前航向：右转 40° 转回 0° */
 #define SHOOT_BACK4_MM    50.0f    /* 再后退 5cm */
-#define SHOOT_RIGHT4_MM   130.0f   /* 最后右移 13cm */
+#define SHOOT_RIGHT4_MM   140.0f   /* 最后右移 14cm */
 #define SHOOT_FWD4B_MM    150.0f   /* 右移的同时前进 15cm（原 10cm，4 号位北移 5cm） */
 #define SHOOT_GIMBAL4_DEG 80.0f    /* 4 号位的云台角度 */
 
@@ -115,8 +115,8 @@ typedef struct
 /* ---------------- 视觉 ---------------- */
 
 #define SHOOT_VISION_WAIT_MS 400U  /* 等首帧上限 */
-#define SHOOT_SEEK_MS        1500U /* 判红/判目标的采样窗口（帧率低，要给够时间） */
-#define SHOOT_JUDGE_FRAMES   3U    /* 至少收到这么多"无目标"帧才下结论 */
+#define SHOOT_SEEK_MS        1300U /* 判红/判目标的采样窗口（帧率低，要给够时间） */
+#define SHOOT_JUDGE_FRAMES   2U    /* 至少收到这么多"无目标"帧才下结论 */
 
 /* ---------------- 对准 ---------------- */
 
@@ -129,13 +129,13 @@ typedef struct
 /* ---------------- 扎击 ---------------- */
 
 #define SHOOT_NEEDLE_OUT_MS 130U  /* 出针后等舵机走完 */
-#define SHOOT_PUSH_SPEED    8.0f  /* 直推速度 cm/s */
+#define SHOOT_PUSH_SPEED    14.0f /* 直推速度 cm/s */
 #define SHOOT_PUSH_MS       400U  /* 直推时长 */
-#define SHOOT_JAB_SPEED     3.0f  /* 反复扎时的前进速度 cm/s */
+#define SHOOT_JAB_SPEED     6.0f  /* 反复扎时的前进速度 cm/s */
 #define SHOOT_JAB_IN_MS     180U  /* 收针保持 */
 #define SHOOT_JAB_OUT_MS    200U  /* 出针保持 */
-#define SHOOT_STAB_MAX_MS   2500U /* 出针后总时限 */
-#define SHOOT_MIN_STAB_MS   300U  /* 出针后至少这么长才允许判破，防误判 */
+#define SHOOT_STAB_MAX_MS   3000U /* 出针后总时限 */
+#define SHOOT_MIN_STAB_MS   200U  /* 出针后至少这么长才允许判破，防误判 */
 #define SHOOT_TRIM_GAIN     0.05f /* 扎击期间云台微调 */
 #define SHOOT_TRIM_DEADBAND 20
 #define SHOOT_TRIM_MAX_STEP 2.0f
@@ -144,7 +144,7 @@ typedef struct
 /* ---------------- 回位 ---------------- */
 
 #define SHOOT_RETURN_SPEED 30.0f /* cm/s */
-#define SHOOT_LOST_FRAMES  3U    /* 连续几帧没有目标就认为已扎破 */
+#define SHOOT_LOST_FRAMES  2U    /* 连续几帧没有目标就认为已扎破 */
 
 void Shoot_Run(void);
 
