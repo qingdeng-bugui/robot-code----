@@ -128,6 +128,10 @@ void IR_work(void)
             }
             break;
 
+        case 0x45: {
+            Serial_SendString("START");
+        }
+
         default:
             break;
         }

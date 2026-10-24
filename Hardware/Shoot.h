@@ -46,7 +46,7 @@ typedef struct
  *   前进 117mm、左移 17mm  <->  场地 (-88, +79) mm  */
 #define SHOOT_FWD4_MM     117.0f
 #define SHOOT_LEFT4_MM    17.0f
-#define SHOOT_GIMBAL3_DEG 135.0f /* 3 号位的云台角度 */
+#define SHOOT_GIMBAL3_DEG 150.0f /* 3 号位的云台角度 */
 
 /* ---------------- 第六、七段：3 号位 -> 4 号位 ---------------- */
 
@@ -58,11 +58,12 @@ typedef struct
 
 /* ---------------- 第八段：4 号位 -> 1 号位 ---------------- */
 
-#define SHOOT_FWD_TO1_MM  200.0f /* 前进 20cm（原 25cm，补偿 4 号位的 5cm 北移） */
-#define SHOOT_GIMBAL1_DEG 185.0f /* 1 号位的云台角度 */
+#define SHOOT_FWD_TO1_MM  350.0f /* 前进 35cm（原 20cm，1 号位再北移 15cm） */
+#define SHOOT_GIMBAL1_DEG 225.0f /* 1 号位的云台角度 */
 
 /* ---------------- 第九~十一段：1 号位 -> 2 号位 ---------------- */
 
+#define SHOOT_BACK1_MM       150.0f /* 补偿 1 号位的 15cm 北移：这一段先南退 15cm */
 #define SHOOT_RIGHT1_MM      100.0f /* 第一段：右移 10cm */
 #define SHOOT_FWD1_MM        150.0f /* 第二段：斜着走，前进 15cm */
 #define SHOOT_RIGHT1B_MM     150.0f /* 第二段：同时右移 15cm（45° 斜移） */
@@ -114,9 +115,9 @@ typedef struct
 
 /* ---------------- 视觉 ---------------- */
 
-#define SHOOT_VISION_WAIT_MS 400U  /* 等首帧上限 */
-#define SHOOT_SEEK_MS        1300U /* 判红/判目标的采样窗口（帧率低，要给够时间） */
-#define SHOOT_JUDGE_FRAMES   2U    /* 至少收到这么多"无目标"帧才下结论 */
+#define SHOOT_VISION_WAIT_MS 0U    /* 等首帧上限 */
+#define SHOOT_SEEK_MS        1200U /* 判红/判目标的采样窗口（帧率低，要给够时间） */
+#define SHOOT_JUDGE_FRAMES   5U    /* 至少收到这么多"无目标"帧才下结论（原 3，多识别 2 帧） */
 
 /* ---------------- 对准 ---------------- */
 
@@ -136,6 +137,9 @@ typedef struct
 #define SHOOT_JAB_OUT_MS    200U  /* 出针保持 */
 #define SHOOT_STAB_MAX_MS   3000U /* 出针后总时限 */
 #define SHOOT_MIN_STAB_MS   200U  /* 出针后至少这么长才允许判破，防误判 */
+#define SHOOT_DX_FAR        120   /* |dx| 超过这么多就认为锁到别的气球了 */
+#define SHOOT_FAR_FRAMES    3U    /* 连续几帧跑偏就判破 */
+#define SHOOT_NOCAN_FRAMES  3U    /* 连续几帧不可戳就判破（需先出现过可戳） */
 #define SHOOT_TRIM_GAIN     0.05f /* 扎击期间云台微调 */
 #define SHOOT_TRIM_DEADBAND 20
 #define SHOOT_TRIM_MAX_STEP 2.0f
@@ -144,7 +148,7 @@ typedef struct
 /* ---------------- 回位 ---------------- */
 
 #define SHOOT_RETURN_SPEED 30.0f /* cm/s */
-#define SHOOT_LOST_FRAMES  2U    /* 连续几帧没有目标就认为已扎破 */
+#define SHOOT_LOST_FRAMES  3U    /* 连续几帧没有目标就认为已扎破 */
 
 void Shoot_Run(void);
 

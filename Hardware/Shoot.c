@@ -23,8 +23,8 @@ static const Shoot_Leg_t SHOOT_LEGS[] =
         {SHOOT_TURN3_DEG, SHOOT_FWD4_MM, SHOOT_LEFT4_MM, SHOOT_GIMBAL3_DEG, 1U},     /* 左转 40°，再按 117/17 走 -> 3 号位 */
         {SHOOT_TURN4_DEG, -(SHOOT_BACK4_MM), 0.0f, SHOOT_GIMBAL4_DEG, 0U},           /* 右转 40° 转回 0° 后先后退 5cm */
         {0.0f, SHOOT_FWD4B_MM, -(SHOOT_RIGHT4_MM), SHOOT_GIMBAL4_DEG, 1U},           /* 右移 13cm + 前进 10cm -> 4 号位 */
-        {0.0f, SHOOT_FWD_TO1_MM, 0.0f, SHOOT_GIMBAL1_DEG, 1U},                       /* 前进 25cm -> 1 号位 */
-        {0.0f, 0.0f, -(SHOOT_RIGHT1_MM), SHOOT_GIMBAL_TO2_DEG, 0U},                  /* 右移 10cm */
+        {0.0f, SHOOT_FWD_TO1_MM, 0.0f, SHOOT_GIMBAL1_DEG, 1U},                       /* 前进 35cm -> 1 号位 */
+        {0.0f, -(SHOOT_BACK1_MM), -(SHOOT_RIGHT1_MM), SHOOT_GIMBAL_TO2_DEG, 0U},     /* 南退 15cm + 右移 10cm（补偿 1 号位北移） */
         {0.0f, SHOOT_FWD1_MM, -(SHOOT_RIGHT1B_MM), SHOOT_GIMBAL_TO2_DEG, 0U},        /* 斜着走：前15cm + 右15cm */
         {SHOOT_TURN2_DEG, SHOOT_FWD2B_MM, SHOOT_LEFT2_MM, SHOOT_GIMBAL_TO2_DEG, 1U}, /* 掉头 180°，再前 1cm + 左 6cm -> 2 号位 */
         {0.0f, 0.0f, -(SHOOT_RIGHT2B_MM), SHOOT_GIMBAL_TO2_DEG, 0U},                 /* 右移 15cm */
@@ -138,26 +138,32 @@ static uint8_t Shoot_WaitFrame(int *dx, int *can_hit, uint8_t *red, int *red_dx,
 
 static uint8_t Shoot_VisionStart(void)
 {
-    uint32_t t0;
-    int dx = 0;
-    int can_hit = 0;
-    int red_dx = 0;
-    uint8_t red = 0U;
-
     Visual_Rx_Init();
     Visual_Rx_Clear();
     HAL_Delay(30U);
     Serial_SendString("START");
 
-    /* 等首帧，最多 SHOOT_VISION_WAIT_MS；超时也继续，不能因为视觉慢就不动 */
-    t0 = HAL_GetTick();
-    while ((uint32_t)(HAL_GetTick() - t0) < SHOOT_VISION_WAIT_MS)
+    /*
+     * 等首帧，最多 SHOOT_VISION_WAIT_MS；超时也继续，不能因为视觉慢就不动。
+     * 设成 0 表示不等（本机不需要这段预热）。
+     */
+#if (SHOOT_VISION_WAIT_MS > 0U)
     {
-        if (Shoot_WaitFrame(&dx, &can_hit, &red, &red_dx, 20U) != VISUAL_COMMAND_INVALID)
+        uint32_t t0 = HAL_GetTick();
+        int dx = 0;
+        int can_hit = 0;
+        int red_dx = 0;
+        uint8_t red = 0U;
+
+        while ((uint32_t)(HAL_GetTick() - t0) < SHOOT_VISION_WAIT_MS)
         {
-            return 1U;
+            if (Shoot_WaitFrame(&dx, &can_hit, &red, &red_dx, 20U) != VISUAL_COMMAND_INVALID)
+            {
+                return 1U;
+            }
         }
     }
+#endif
 
     return 0U;
 }
@@ -280,6 +286,10 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
     uint8_t target_cnt = 0U;
     uint8_t none_cnt = 0U;
     uint8_t lost_cnt = 0U;
+    uint8_t far_cnt = 0U;      /* 连续 dx 跑偏帧数：说明锁到别的气球上了 */
+    uint8_t nocan_cnt = 0U;    /* 连续 can_hit=0 帧数：近处那个球没了 */
+    uint8_t armed_center = 0U; /* 本次戳击曾经对准过（|dx| <= AIM_TOLERANCE） */
+    uint8_t armed_hit = 0U;    /* 本次戳击曾经出现过 can_hit==1 */
     uint32_t t0;
     uint32_t last;
     float servo = gimbal_deg;
@@ -416,8 +426,52 @@ static void Shoot_TryStab(float gimbal_deg, float heading_deg)
         if (cmd == VISUAL_COMMAND_TARGET)
         {
             lost_cnt = 0U;
-            Shoot_Aim(&servo, dx, SHOOT_TRIM_GAIN, SHOOT_TRIM_DEADBAND,
-                      SHOOT_TRIM_MAX_STEP);
+
+            /* 记录"确实对准过 / 确实可戳过"，后面两条旁路信号要靠它武装 */
+            if ((dx <= SHOOT_AIM_TOLERANCE) && (dx >= -SHOOT_AIM_TOLERANCE))
+            {
+                armed_center = 1U;
+            }
+            if (can_hit == 1)
+            {
+                armed_hit = 1U;
+            }
+
+            /* 旁路信号2：目标跑到画面很偏的位置，说明锁到别的气球了 */
+            if ((dx > SHOOT_DX_FAR) || (dx < -SHOOT_DX_FAR))
+            {
+                far_cnt++;
+            }
+            else
+            {
+                far_cnt = 0U;
+            }
+
+            /* 旁路信号3：本来可戳，现在连续不可戳，说明近处那个球没了 */
+            if ((armed_hit != 0U) && (can_hit == 0))
+            {
+                nocan_cnt++;
+            }
+            else
+            {
+                nocan_cnt = 0U;
+            }
+
+            /* 目标跑偏太多时不再追，否则云端会把 dx 拉回来，信号攒不满 */
+            if ((dx <= SHOOT_DX_FAR) && (dx >= -SHOOT_DX_FAR))
+            {
+                Shoot_Aim(&servo, dx, SHOOT_TRIM_GAIN, SHOOT_TRIM_DEADBAND,
+                          SHOOT_TRIM_MAX_STEP);
+            }
+
+            if (elapsed >= (float)SHOOT_MIN_STAB_MS)
+            {
+                if (((armed_center != 0U) && (far_cnt >= SHOOT_FAR_FRAMES)) ||
+                    ((armed_hit != 0U) && (nocan_cnt >= SHOOT_NOCAN_FRAMES)))
+                {
+                    break; /* 锁到别的气球 / 近处球没了 => 判破 */
+                }
+            }
         }
         else if (cmd == VISUAL_COMMAND_NONE)
         {
